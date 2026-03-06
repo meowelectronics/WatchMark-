@@ -13,7 +13,7 @@ public class VlcLauncherService
         _configuredVlcPath = configuredVlcPath;
     }
 
-    public bool TryOpen(string movieFilePath, out string errorMessage, int httpPort = 8080, string httpPassword = "vlchttp")
+    public bool TryOpen(string movieFilePath, out string errorMessage, int httpPort = 8080, string httpPassword = "vlchttp", long startTimeSeconds = 0)
     {
         errorMessage = string.Empty;
 
@@ -26,7 +26,8 @@ public class VlcLauncherService
         try
         {
             var vlcExecutable = ResolveVlcExecutablePath();
-            var arguments = $"--extraintf=http --http-password={httpPassword} --http-port={httpPort} \"{movieFilePath}\"";
+            var startTimeArg = startTimeSeconds > 0 ? $" --start-time={startTimeSeconds}" : string.Empty;
+            var arguments = $"--extraintf=http --http-password={httpPassword} --http-port={httpPort}{startTimeArg} \"{movieFilePath}\"";
             
             var startInfo = new ProcessStartInfo
             {

@@ -68,7 +68,12 @@ public partial class MainWindow : Window
 
             var row = FindAncestor<DataGridRow>(clickedElement);
             var movie = row?.Item as MovieItem;
-            viewModel.OpenMovieInVlc(movie ?? viewModel.SelectedMovie);
+            
+            if (movie is not null)
+            {
+                // Open movie with resume support
+                viewModel.OpenMovieInVlc(movie);
+            }
         }
     }
 

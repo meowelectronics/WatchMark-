@@ -26,18 +26,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isInitializing = true;
     private const int VlcHttpPort = 8080;
     private const string VlcHttpPassword = "vlchttp";
+    private const string LastOpenPlaylistName = "Last Open";
+    private const string VlcTitlePrefix = "vlc-title::";
 
     public ObservableCollection<MovieItem> Movies { get; } = [];
     public ObservableCollection<MovieItem> FilteredMovies { get; } = [];
     public ObservableCollection<string> RecentLibraryPaths { get; } = [];
+    public ObservableCollection<Playlist> Playlists { get; } = [];
 
     public ICommand ScanCommand { get; }
     public ICommand BrowseCommand { get; }
     public ICommand MarkSelectedWatchedCommand { get; }
     public ICommand MarkSelectedUnwatchedCommand { get; }
+    public ICommand AddPlaylistCommand { get; }
+    public ICommand DeletePlaylistCommand { get; }
 
     [ObservableProperty]
     private MovieItem? selectedMovie;
+
+    [ObservableProperty]
+    private Playlist? selectedPlaylist;
 
     [ObservableProperty]
     private string statusText = "Ready";
@@ -50,6 +58,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string currentFolderName = string.Empty;
+
+    [ObservableProperty]
+    private bool isVlcHttpConnected;
+
+    [ObservableProperty]
+    private string vlcStatusText = "VLC: Checking...";
 
     public MainViewModel()
     {
@@ -76,6 +90,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _vlcLauncherService = new VlcLauncherService(_settings.VlcPath);
         _vlcHttpMonitor = new VlcHttpMonitorService(VlcHttpPort, VlcHttpPassword);
         _vlcHttpMonitor.StatusChanged += OnVlcStatusChanged;
+        _vlcHttpMonitor.NewFileDetected += OnNewFileDetected;
+        _vlcHttpMonitor.HttpConnectionChanged += OnVlcHttpConnectionChanged;
 
         // Populate recent paths first
         Debug.WriteLine($"INIT: _settings.RecentLibraryPaths count = {_settings.RecentLibraryPaths?.Count ?? 0}");
@@ -121,22 +137,36 @@ public partial class MainViewModel : ObservableObject, IDisposable
         BrowseCommand = new RelayCommand(BrowseForLibraryPath);
         MarkSelectedWatchedCommand = new RelayCommand(MarkSelectedWatched, () => SelectedMovie is not null);
         MarkSelectedUnwatchedCommand = new RelayCommand(MarkSelectedUnwatched, () => SelectedMovie is not null);
+        AddPlaylistCommand = new RelayCommand(AddNewPlaylist);
+        DeletePlaylistCommand = new RelayCommand<Playlist>(DeletePlaylist);
         
-        // Initial scan on startup if path exists
+        // Mark initialization as complete before creating playlists
         _isInitializing = false;
-        Debug.WriteLine($"INIT: SelectedLibraryPath = '{SelectedLibraryPath}'");
-        Debug.WriteLine($"INIT: _settings.LibraryPath = '{_settings.LibraryPath}'");
-        Debug.WriteLine($"INIT: RecentLibraryPaths.Count = {RecentLibraryPaths.Count}");
-        if (!string.IsNullOrWhiteSpace(_settings.LibraryPath) && Directory.Exists(_settings.LibraryPath))
+
+        // Fixed playlist for files opened directly in VLC (e.g., from Windows Explorer)
+        var lastOpenPlaylist = new Playlist(LastOpenPlaylistName, string.Empty, true);
+        Playlists.Add(lastOpenPlaylist);
+        
+        // Load previously detected Last Open entries from database
+        LoadLastOpenEntries(lastOpenPlaylist);
+        
+        // Initialize default playlist
+        if (!string.IsNullOrWhiteSpace(libraryPath) && Directory.Exists(libraryPath))
         {
-            Debug.WriteLine("INIT: Valid path found, starting scan");
-            ScanLibrary();
+            var defaultPlaylist = new Playlist("Main Library", libraryPath);
+            Playlists.Add(defaultPlaylist);
+            SelectedPlaylist = defaultPlaylist; // This will trigger scan via OnSelectedPlaylistChanged
         }
         else
         {
-            Debug.WriteLine("INIT: No valid path, showing prompt");
-            StatusText = "Select a library folder to begin tracking movies";
+            SelectedPlaylist = lastOpenPlaylist;
+            StatusText = "Play a movie in VLC to populate Last Open, or click '+ New Playlist'";
         }
+        
+        // Start background VLC monitoring to auto-detect playback
+        Debug.WriteLine("INIT: Starting continuous VLC monitoring");
+        _vlcHttpMonitor.StartMonitoring(); // No file path = continuous monitoring
+        StatusText = "Background monitoring active - play movies in VLC to track them";
     }
 
     private void BrowseForLibraryPath()
@@ -228,6 +258,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     movie.ProgressPercent = state.ProgressPercent;
                     movie.IsWatched = state.IsWatched;
                     movie.LastWatchedUtc = state.LastWatchedUtc;
+                    movie.Duration = TimeSpan.FromSeconds(state.Duration);
+                    movie.TimeSeconds = state.TimeSeconds;
                 }
 
                 movie.PropertyChanged += OnMoviePropertyChanged;
@@ -246,6 +278,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             
             // Update filtered movies
             ApplyFilter();
+
+            // Keep selected playlist cache in sync for normal (folder-based) playlists
+            if (SelectedPlaylist is not null && !SelectedPlaylist.IsFixed)
+            {
+                SelectedPlaylist.Movies.Clear();
+                foreach (var movie in Movies)
+                {
+                    SelectedPlaylist.Movies.Add(movie);
+                }
+            }
             
             // If no movies found, show debug info about what files exist in the directory
             if (Movies.Count == 0)
@@ -312,14 +354,25 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_vlcLauncherService.TryOpen(movie.FilePath, out var errorMessage, VlcHttpPort, VlcHttpPassword))
+        // For title-only entries, can't open file
+        if (movie.FilePath.StartsWith("vlc-title://", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText = "Cannot open title-only entry - file path unknown";
+            return;
+        }
+
+        var startTime = movie.TimeSeconds > 0 && movie.ProgressPercent < 95 ? movie.TimeSeconds : 0;
+
+        if (_vlcLauncherService.TryOpen(movie.FilePath, out var errorMessage, VlcHttpPort, VlcHttpPassword, startTime))
         {
             _trackedMovie = movie;
             _lastSavedProgress = movie.ProgressPercent;
             movie.LastWatchedUtc = DateTimeOffset.UtcNow;
             _watchStatusRepository.Save(movie);
             _vlcHttpMonitor.StartMonitoring(movie.FilePath);
-            StatusText = $"Opened in VLC: {movie.Title}";
+            
+            var resumeMsg = startTime > 0 ? $" (resuming from {TimeSpan.FromSeconds(startTime):hh\\:mm\\:ss})" : "";
+            StatusText = $"Opened in VLC: {movie.Title}{resumeMsg}";
             return;
         }
 
@@ -366,6 +419,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             // Update the tracked movie
             trackedMovie.ProgressPercent = status.ProgressPercent;
+            trackedMovie.TimeSeconds = status.TimeSeconds;
+            
+            if (status.LengthSeconds > 0)
+            {                trackedMovie.Duration = TimeSpan.FromSeconds(status.LengthSeconds);
+            }
             
             if (status.ProgressPercent >= _settings.WatchedThresholdPercent)
             {
@@ -379,6 +437,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 movieInCollection.ProgressPercent = trackedMovie.ProgressPercent;
                 movieInCollection.IsWatched = trackedMovie.IsWatched;
                 movieInCollection.LastWatchedUtc = trackedMovie.LastWatchedUtc;
+                movieInCollection.TimeSeconds = trackedMovie.TimeSeconds;
+                if (status.LengthSeconds > 0)
+                {
+                    movieInCollection.Duration = TimeSpan.FromSeconds(status.LengthSeconds);
+                }
             }
 
             // Also update in FilteredMovies if present
@@ -388,6 +451,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 movieInFiltered.ProgressPercent = trackedMovie.ProgressPercent;
                 movieInFiltered.IsWatched = trackedMovie.IsWatched;
                 movieInFiltered.LastWatchedUtc = trackedMovie.LastWatchedUtc;
+                movieInFiltered.TimeSeconds = trackedMovie.TimeSeconds;
+                if (status.LengthSeconds > 0)
+                {
+                    movieInFiltered.Duration = TimeSpan.FromSeconds(status.LengthSeconds);
+                }
             }
 
             if (status.HasEnded)
@@ -482,6 +550,317 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ApplyFilter();
     }
 
+    partial void OnSelectedPlaylistChanged(Playlist? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        if (value.IsFixed)
+        {
+            SelectedLibraryPath = string.Empty;
+            CurrentFolderName = value.Name;
+            Movies.Clear();
+            foreach (var movie in value.Movies)
+            {
+                Movies.Add(movie);
+            }
+            ApplyFilter();
+            StatusText = value.Movies.Count == 0
+                ? "Last Open is empty - open a movie in VLC from Explorer"
+                : $"Showing {value.Movies.Count} item(s) from Last Open";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value.LibraryPath))
+        {
+            // Switch to selected playlist's library
+            SelectedLibraryPath = value.LibraryPath;
+            CurrentFolderName = value.Name;
+            
+            // Scan the library to populate movies
+            ScanLibrary();
+        }
+    }
+
+    private void OnNewFileDetected(object? sender, string filePath)
+    {
+        void Update()
+        {
+            Debug.WriteLine($"NEW FILE DETECTED: {filePath}");
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return;
+            }
+
+            var isTitleOnlyDetection = filePath.StartsWith(VlcTitlePrefix, StringComparison.OrdinalIgnoreCase);
+            var titleOnlyText = isTitleOnlyDetection
+                ? filePath.Substring(VlcTitlePrefix.Length).Trim()
+                : string.Empty;
+
+            // Filter out generic VLC titles
+            if (isTitleOnlyDetection && 
+                (string.Equals(titleOnlyText, "vlc", StringComparison.OrdinalIgnoreCase) ||
+                 titleOnlyText.Length < 3))
+            {
+                return;
+            }
+
+            if (!isTitleOnlyDetection && !File.Exists(filePath))
+            {
+                return;
+            }
+
+            // Check if movie already exists in current playlist/library
+            var existingMovie = Movies.FirstOrDefault(m => 
+                string.Equals(m.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+            
+            if (existingMovie is not null)
+            {
+                Debug.WriteLine($"Movie already tracked: {existingMovie.Title}");
+                _trackedMovie = existingMovie;
+                _lastSavedProgress = existingMovie.ProgressPercent;
+                StatusText = $"Playing: {existingMovie.Title}";
+                return;
+            }
+
+            MovieItem? newMovie;
+
+            if (isTitleOnlyDetection)
+            {
+                if (string.IsNullOrWhiteSpace(titleOnlyText))
+                {
+                    return;
+                }
+
+                var syntheticPath = $"vlc-title://{titleOnlyText}";
+                newMovie = new MovieItem
+                {
+                    Title = titleOnlyText,
+                    FilePath = syntheticPath,
+                    LastWatchedUtc = DateTimeOffset.UtcNow
+                };
+            }
+            else
+            {
+                // Auto-index new movie
+                Debug.WriteLine($"Auto-indexing new movie: {filePath}");
+                var directory = Path.GetDirectoryName(filePath);
+
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    return;
+                }
+
+                // Scan just this one file
+                var scannedMovies = _libraryScannerService.Scan(directory).Where(m =>
+                    string.Equals(m.FilePath, filePath, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (scannedMovies.Count == 0)
+                {
+                    Debug.WriteLine($"File not recognized as movie: {filePath}");
+                    return;
+                }
+
+                newMovie = scannedMovies[0];
+
+                // Load watch status from database
+                var persisted = _watchStatusRepository.LoadAll();
+                if (persisted.TryGetValue(newMovie.FilePath, out var state))
+                {
+                    newMovie.ProgressPercent = state.ProgressPercent;
+                    newMovie.IsWatched = state.IsWatched;
+                    newMovie.LastWatchedUtc = state.LastWatchedUtc;
+                    newMovie.Duration = TimeSpan.FromSeconds(state.Duration);
+                    newMovie.TimeSeconds = state.TimeSeconds;
+                }
+            }
+
+            // Only add real file paths to Last Open (not title-only entries)
+            if (!isTitleOnlyDetection)
+            {
+                var lastOpenPlaylist = Playlists.FirstOrDefault(p => p.IsFixed &&
+                    string.Equals(p.Name, LastOpenPlaylistName, StringComparison.OrdinalIgnoreCase));
+
+                if (lastOpenPlaylist is not null)
+                {
+                    var existingInLastOpen = lastOpenPlaylist.Movies.FirstOrDefault(m =>
+                        string.Equals(m.FilePath, newMovie.FilePath, StringComparison.OrdinalIgnoreCase));
+
+                    if (existingInLastOpen is not null)
+                    {
+                        newMovie = existingInLastOpen;
+                        newMovie.LastWatchedUtc = DateTimeOffset.UtcNow;
+                    }
+                    else
+                    {
+                        lastOpenPlaylist.Movies.Insert(0, newMovie);
+                    }
+                }
+            }
+
+            newMovie.PropertyChanged -= OnMoviePropertyChanged;
+            newMovie.PropertyChanged += OnMoviePropertyChanged;
+
+            if (SelectedPlaylist?.IsFixed == true)
+            {
+                Movies.Clear();
+                foreach (var movie in SelectedPlaylist.Movies)
+                {
+                    Movies.Add(movie);
+                }
+                ApplyFilter();
+            }
+            else if (!Movies.Any(m => string.Equals(m.FilePath, newMovie.FilePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                Movies.Add(newMovie);
+                ApplyFilter();
+            }
+            
+            _trackedMovie = newMovie;
+            _lastSavedProgress = newMovie.ProgressPercent;
+            
+            // Save to database so it persists across restarts
+            _watchStatusRepository.Save(newMovie);
+            
+            StatusText = $"Auto-indexed and tracking: {newMovie.Title}";
+            Debug.WriteLine($"Auto-indexed: {newMovie.Title}");
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(Update);
+            return;
+        }
+
+        Update();
+    }
+    
+    private void LoadLastOpenEntries(Playlist lastOpenPlaylist)
+    {
+        try
+        {
+            var persisted = _watchStatusRepository.LoadAll();
+            
+            // Load entries that have been watched (exclude vlc-title:// since they can't be opened)
+            var lastOpenEntries = persisted
+                .Where(kvp => !kvp.Key.StartsWith("vlc-title://", StringComparison.OrdinalIgnoreCase) &&
+                             kvp.Value.LastWatchedUtc.HasValue)
+                .OrderByDescending(kvp => kvp.Value.LastWatchedUtc ?? DateTimeOffset.MinValue)
+                .Take(50) // Limit to last 50 entries
+                .ToList();
+                
+            foreach (var entry in lastOpenEntries)
+            {
+                var movie = new MovieItem
+                {
+                    FilePath = entry.Key,
+                    Title = entry.Key.StartsWith("vlc-title://", StringComparison.OrdinalIgnoreCase)
+                        ? entry.Key.Substring("vlc-title://".Length)
+                        : Path.GetFileNameWithoutExtension(entry.Key),
+                    ProgressPercent = entry.Value.ProgressPercent,
+                    IsWatched = entry.Value.IsWatched,
+                    LastWatchedUtc = entry.Value.LastWatchedUtc,
+                    Duration = TimeSpan.FromSeconds(entry.Value.Duration),
+                    TimeSeconds = entry.Value.TimeSeconds
+                };
+                
+                movie.PropertyChanged -= OnMoviePropertyChanged;
+                movie.PropertyChanged += OnMoviePropertyChanged;
+                lastOpenPlaylist.Movies.Add(movie);
+            }
+            
+            Debug.WriteLine($"Loaded {lastOpenEntries.Count} Last Open entries from database");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error loading Last Open entries: {ex.Message}");
+        }
+    }
+
+    private void OnVlcHttpConnectionChanged(object? sender, bool isConnected)
+    {
+        void Update()
+        {
+            IsVlcHttpConnected = isConnected;
+            VlcStatusText = isConnected 
+                ? "VLC HTTP: Connected ✓" 
+                : "VLC HTTP: Disconnected (title-only detection)";
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(Update);
+            return;
+        }
+
+        Update();
+    }
+
+    private void AddNewPlaylist()
+    {
+        using var dialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "Select Playlist Library Folder",
+            UseDescriptionForTitle = true
+        };
+
+        if (dialog.ShowDialog() == WinForms.DialogResult.OK)
+        {
+            var path = dialog.SelectedPath;
+            var name = Path.GetFileName(path.TrimEnd('\\', '/'));
+            
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = path;
+            }
+
+            var playlist = new Playlist(name, path);
+            Playlists.Add(playlist);
+            SelectedPlaylist = playlist;
+            
+            AddRecentPath(path);
+            PersistSettings();
+        }
+    }
+
+    private void DeletePlaylist(Playlist? playlist)
+    {
+        if (playlist is null)
+        {
+            return;
+        }
+
+        if (playlist.IsFixed)
+        {
+            StatusText = $"{playlist.Name} is a fixed playlist and cannot be deleted";
+            return;
+        }
+
+        if (Playlists.Count <= 1)
+        {
+            // Don't allow deleting the last playlist
+            StatusText = "Cannot delete the last playlist";
+            return;
+        }
+
+        var index = Playlists.IndexOf(playlist);
+        Playlists.Remove(playlist);
+        
+        // Select another playlist after deletion
+        if (Playlists.Count > 0)
+        {
+            var newIndex = Math.Min(index, Playlists.Count - 1);
+            SelectedPlaylist = Playlists[newIndex];
+        }
+        
+        StatusText = $"Deleted playlist: {playlist.Name}";
+    }
+
     private void ApplyFilter()
     {
         FilteredMovies.Clear();
@@ -517,6 +896,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         _vlcHttpMonitor.StatusChanged -= OnVlcStatusChanged;
+        _vlcHttpMonitor.NewFileDetected -= OnNewFileDetected;
+        _vlcHttpMonitor.HttpConnectionChanged -= OnVlcHttpConnectionChanged;
         _vlcHttpMonitor.Dispose();
     }
 

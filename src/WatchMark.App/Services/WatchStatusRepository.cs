@@ -31,9 +31,37 @@ public class WatchStatusRepository
                 FilePath TEXT PRIMARY KEY,
                 ProgressPercent REAL NOT NULL,
                 IsWatched INTEGER NOT NULL,
-                LastWatchedUtc TEXT
+                LastWatchedUtc TEXT,
+                Duration REAL DEFAULT 0,
+                TimeSeconds INTEGER DEFAULT 0
             )";
         createTableCommand.ExecuteNonQuery();
+
+        // Add columns if they don't exist (migration)
+        var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "PRAGMA table_info(WatchStatus)";
+        var columns = new List<string>();
+        using (var reader = alterCommand.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                columns.Add(reader.GetString(1));
+            }
+        }
+
+        if (!columns.Contains("Duration"))
+        {
+            var addDurationCmd = connection.CreateCommand();
+            addDurationCmd.CommandText = "ALTER TABLE WatchStatus ADD COLUMN Duration REAL DEFAULT 0";
+            addDurationCmd.ExecuteNonQuery();
+        }
+
+        if (!columns.Contains("TimeSeconds"))
+        {
+            var addTimeCmd = connection.CreateCommand();
+            addTimeCmd.CommandText = "ALTER TABLE WatchStatus ADD COLUMN TimeSeconds INTEGER DEFAULT 0";
+            addTimeCmd.ExecuteNonQuery();
+        }
     }
 
     public void Save(MovieItem movie)
@@ -43,30 +71,34 @@ public class WatchStatusRepository
 
         var command = connection.CreateCommand();
         command.CommandText = @"
-            INSERT INTO WatchStatus (FilePath, ProgressPercent, IsWatched, LastWatchedUtc)
-            VALUES ($filePath, $progressPercent, $isWatched, $lastWatchedUtc)
+            INSERT INTO WatchStatus (FilePath, ProgressPercent, IsWatched, LastWatchedUtc, Duration, TimeSeconds)
+            VALUES ($filePath, $progressPercent, $isWatched, $lastWatchedUtc, $duration, $timeSeconds)
             ON CONFLICT(FilePath) DO UPDATE SET
                 ProgressPercent = $progressPercent,
                 IsWatched = $isWatched,
-                LastWatchedUtc = $lastWatchedUtc";
+                LastWatchedUtc = $lastWatchedUtc,
+                Duration = $duration,
+                TimeSeconds = $timeSeconds";
 
         command.Parameters.AddWithValue("$filePath", movie.FilePath);
         command.Parameters.AddWithValue("$progressPercent", movie.ProgressPercent);
         command.Parameters.AddWithValue("$isWatched", movie.IsWatched ? 1 : 0);
         command.Parameters.AddWithValue("$lastWatchedUtc", movie.LastWatchedUtc?.ToString("o") ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("$duration", movie.Duration.TotalSeconds);
+        command.Parameters.AddWithValue("$timeSeconds", movie.TimeSeconds);
 
         command.ExecuteNonQuery();
     }
 
-    public Dictionary<string, (double ProgressPercent, bool IsWatched, DateTimeOffset? LastWatchedUtc)> LoadAll()
+    public Dictionary<string, (double ProgressPercent, bool IsWatched, DateTimeOffset? LastWatchedUtc, double Duration, long TimeSeconds)> LoadAll()
     {
-        var result = new Dictionary<string, (double, bool, DateTimeOffset?)>();
+        var result = new Dictionary<string, (double, bool, DateTimeOffset?, double, long)>();
 
         using var connection = new SqliteConnection($"Data Source={_databasePath}");
         connection.Open();
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT FilePath, ProgressPercent, IsWatched, LastWatchedUtc FROM WatchStatus";
+        command.CommandText = "SELECT FilePath, ProgressPercent, IsWatched, LastWatchedUtc, Duration, TimeSeconds FROM WatchStatus";
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -77,8 +109,10 @@ public class WatchStatusRepository
             var lastWatchedUtc = reader.IsDBNull(3)
                 ? null
                 : (DateTimeOffset?)DateTimeOffset.Parse(reader.GetString(3));
+            var duration = reader.IsDBNull(4) ? 0.0 : reader.GetDouble(4);
+            var timeSeconds = reader.IsDBNull(5) ? 0L : reader.GetInt64(5);
 
-            result[filePath] = (progressPercent, isWatched, lastWatchedUtc);
+            result[filePath] = (progressPercent, isWatched, lastWatchedUtc, duration, timeSeconds);
         }
 
         return result;

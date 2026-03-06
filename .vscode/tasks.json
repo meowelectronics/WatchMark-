@@ -2,12 +2,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Build MovieWatchTracker",
+      "label": "Build WatchMark",
       "type": "shell",
       "command": "dotnet",
       "args": [
         "build",
-        ".\\MovieWatchTracker.sln"
+        ".\\WatchMark.sln"
       ],
       "group": "build",
       "problemMatcher": [
