@@ -441,7 +441,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            CurrentFolderName = string.Empty;
+            var fallbackPath = _settings.LibraryPath;
+            if (!string.IsNullOrWhiteSpace(fallbackPath))
+            {
+                CurrentFolderName = Path.GetFileName(fallbackPath.TrimEnd('\\', '/'));
+                if (string.IsNullOrWhiteSpace(CurrentFolderName))
+                {
+                    CurrentFolderName = fallbackPath;
+                }
+            }
+            else if (Movies.Count == 0)
+            {
+                CurrentFolderName = string.Empty;
+            }
         }
         
         // Only auto-scan after initialization when user actively changes the path

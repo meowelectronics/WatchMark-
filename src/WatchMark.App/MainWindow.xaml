@@ -5,18 +5,23 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="WatchMark - Track Your Movies"
-        Height="640"
-        Width="980"
-        MinHeight="500"
-        MinWidth="760"
-        Icon="app.ico">
-    <Grid Margin="16">
+        Height="720"
+        Width="1200"
+        MinHeight="600"
+        MinWidth="900"
+        Icon="app.ico"
+        Background="{StaticResource BackgroundBrush}"
+        WindowStartupLocation="CenterScreen">
+    <Border Padding="32" Background="{StaticResource BackgroundBrush}">
+    <Grid>
         <Grid.Resources>
             <Style x:Key="MovieTextStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                 <Style.Triggers>
                     <DataTrigger Binding="{Binding IsWatched}" Value="True">
                         <Setter Property="TextDecorations" Value="Strikethrough" />
-                        <Setter Property="Opacity" Value="0.65" />
+                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                        <Setter Property="Opacity" Value="0.7" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -29,34 +34,67 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Margin="0,0,0,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+        <!-- Header Section -->
+        <Border Background="White" CornerRadius="12" Padding="24" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect ShadowDepth="0" BlurRadius="16" Opacity="0.05"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Column="0" Text="Library:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <Grid Grid.Column="1" Margin="0,0,8,0">
-                <ComboBox x:Name="LibraryPathComboBox"
-                          IsEditable="False"
-                          SelectedItem="{Binding SelectedLibraryPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                          ItemsSource="{Binding RecentLibraryPaths}"
-                          VerticalContentAlignment="Center"
-                          SelectionChanged="LibraryPathComboBox_SelectionChanged" />
-                <TextBlock IsHitTestVisible="False"
-                           HorizontalAlignment="Left"
-                           VerticalAlignment="Center"
-                           Margin="5,0,0,0"
-                           Text="{Binding SelectedLibraryPath, TargetNullValue='(select library...)'}"
-                           TextTrimming="CharacterEllipsis"
-                           Opacity="0.6"
-                           Foreground="Gray" />
+                <TextBlock Grid.Column="0" 
+                          Text="📁 Library:" 
+                          VerticalAlignment="Center" 
+                          Margin="0,0,16,0"
+                          FontSize="14"
+                          FontWeight="Medium"
+                          Foreground="{StaticResource TextPrimaryBrush}" />
+                <Grid Grid.Column="1" Margin="0,0,16,0">
+                    <ComboBox x:Name="LibraryPathComboBox"
+                              Style="{StaticResource ModernComboBox}"
+                              IsEditable="False"
+                              Height="42"
+                              SelectedItem="{Binding SelectedLibraryPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              ItemsSource="{Binding RecentLibraryPaths}"
+                              VerticalContentAlignment="Center"
+                              SelectionChanged="LibraryPathComboBox_SelectionChanged" />
+                    <TextBlock IsHitTestVisible="False"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0"
+                               Text="Select a library folder..."
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               FontSize="14">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedLibraryPath}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SelectedLibraryPath}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+                <Button Grid.Column="2" 
+                       Content="Browse" 
+                       Width="100" 
+                       Style="{StaticResource ModernButton}"
+                       Command="{Binding BrowseCommand}" />
             </Grid>
-            <Button Grid.Column="2" Content="Browse..." Width="80" Command="{Binding BrowseCommand}" />
-        </Grid>
+        </Border>
 
-        <Grid Grid.Row="1" Margin="0,0,0,12">
+        <!-- Toolbar Section -->
+        <Grid Grid.Row="1" Margin="0,0,0,20">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -65,102 +103,168 @@
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0" 
-                       FontSize="18" 
-                       FontWeight="SemiBold"
+                       FontSize="24" 
+                       FontWeight="Bold"
                        VerticalAlignment="Center" 
-                       Margin="0,0,16,0"
+                       Margin="0,0,24,0"
                        TextTrimming="CharacterEllipsis">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
                         <Setter Property="Text" Value="{Binding CurrentFolderName}" />
-                        <Setter Property="Foreground" Value="Black" />
+                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding CurrentFolderName}" Value="">
-                                <Setter Property="Text" Value="(no library selected)" />
-                                <Setter Property="Foreground" Value="Gray" />
-                                <Setter Property="FontWeight" Value="Normal" />
+                                <Setter Property="Text" Value="No Library Selected" />
+                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding CurrentFolderName}" Value="{x:Null}">
-                                <Setter Property="Text" Value="(no library selected)" />
-                                <Setter Property="Foreground" Value="Gray" />
-                                <Setter Property="FontWeight" Value="Normal" />
+                                <Setter Property="Text" Value="No Library Selected" />
+                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </TextBlock.Style>
             </TextBlock>
             
-            <TextBox Grid.Column="1"
-                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
-                     VerticalContentAlignment="Center"
-                     Margin="0,0,8,0"
-                     Height="28">
-                <TextBox.Style>
-                    <Style TargetType="TextBox">
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding Text, RelativeSource={RelativeSource Self}}" Value="">
-                                <Setter Property="Background">
-                                    <Setter.Value>
-                                        <VisualBrush Stretch="None" AlignmentX="Left">
-                                            <VisualBrush.Visual>
-                                                <TextBlock Text="🔍 Filter movies..." Foreground="Gray" Margin="4,0,0,0" />
-                                            </VisualBrush.Visual>
-                                        </VisualBrush>
-                                    </Setter.Value>
-                                </Setter>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBox.Style>
-            </TextBox>
+            <Border Grid.Column="1" 
+                   Background="White" 
+                   CornerRadius="8" 
+                   BorderBrush="{StaticResource BorderBrush}" 
+                   BorderThickness="1"
+                   Margin="0,0,16,0">
+                <Grid>
+                    <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource ModernTextBox}"
+                             BorderThickness="0"
+                             Height="42"
+                             VerticalContentAlignment="Center" />
+                    <TextBlock IsHitTestVisible="False"
+                              Text="🔍 Search movies..."
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left"
+                              Margin="12,0,0,0"
+                              Foreground="{StaticResource TextMutedBrush}"
+                              FontSize="14">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FilterText}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FilterText}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </Border>
             
             <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,16,0">
-                <Button Content="Mark Watched" Width="120" Command="{Binding MarkSelectedWatchedCommand}" Margin="0,0,8,0" />
-                <Button Content="Mark Unwatched" Width="130" Command="{Binding MarkSelectedUnwatchedCommand}" />
+                <Button Content="✓ Watched" 
+                       Width="120" 
+                       Style="{StaticResource ModernButton}"
+                       Command="{Binding MarkSelectedWatchedCommand}" 
+                       Margin="0,0,12,0" />
+                <Button Content="○ Unwatched" 
+                       Width="130" 
+                       Style="{StaticResource SecondaryButton}"
+                       Command="{Binding MarkSelectedUnwatchedCommand}" />
             </StackPanel>
             
-            <TextBlock Grid.Column="3" Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            <TextBlock Grid.Column="3" 
+                      Text="{Binding StatusText}" 
+                      VerticalAlignment="Center" 
+                      TextTrimming="CharacterEllipsis"
+                      Foreground="{StaticResource TextSecondaryBrush}"
+                      FontSize="14" />
         </Grid>
 
-        <DataGrid Grid.Row="2"
-                  AutoGenerateColumns="False"
-                  ItemsSource="{Binding FilteredMovies}"
-                  SelectedItem="{Binding SelectedMovie}"
-                  MouseDoubleClick="MoviesGrid_MouseDoubleClick"
-                  IsReadOnly="False">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn Header="" Width="40">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="✔"
-                                       HorizontalAlignment="Center"
-                                       FontWeight="Bold">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsWatched}" Value="True">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="2*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
-                <DataGridTextColumn Header="Duration" Binding="{Binding DurationText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
-                <DataGridTextColumn Header="Progress" Binding="{Binding ProgressText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
-                <DataGridCheckBoxColumn Header="Watched" Binding="{Binding IsWatched}" Width="90" />
-                <DataGridTextColumn Header="Last Watched" Binding="{Binding LastWatchedText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- Movie List -->
+        <Border Grid.Row="2" 
+               Background="White" 
+               CornerRadius="12" 
+               BorderBrush="{StaticResource BorderBrush}" 
+               BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect ShadowDepth="0" BlurRadius="16" Opacity="0.05"/>
+            </Border.Effect>
+            <DataGrid AutoGenerateColumns="False"
+                      ItemsSource="{Binding FilteredMovies}"
+                      SelectedItem="{Binding SelectedMovie}"
+                      MouseDoubleClick="MoviesGrid_MouseDoubleClick"
+                      IsReadOnly="False"
+                      Style="{StaticResource ModernDataGrid}"
+                      ColumnHeaderStyle="{StaticResource ModernDataGridColumnHeader}"
+                      CellStyle="{StaticResource ModernDataGridCell}"
+                      RowStyle="{StaticResource ModernDataGridRow}"
+                      BorderThickness="0">
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="" Width="60">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource SuccessBrush}" 
+                                       CornerRadius="12" 
+                                       Width="24" 
+                                       Height="24"
+                                       HorizontalAlignment="Center">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsWatched}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="✓"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Foreground="White"
+                                              FontWeight="Bold"
+                                              FontSize="12" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="2*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
+                    <DataGridTextColumn Header="Duration" Binding="{Binding DurationText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
+                    <DataGridTextColumn Header="Progress" Binding="{Binding ProgressText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
+                    <DataGridCheckBoxColumn Header="Watched" Binding="{Binding IsWatched}" Width="100" />
+                    <DataGridTextColumn Header="Last Watched" Binding="{Binding LastWatchedText}" Width="*" ElementStyle="{StaticResource MovieTextStyle}" IsReadOnly="True" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
 
-        <TextBlock Grid.Row="3"
-                   Margin="0,12,0,0"
-                   TextWrapping="Wrap"
-                   Text="Tip: Double-click a movie to play in VLC. Progress is tracked automatically." />
+        <!-- Footer -->
+        <Border Grid.Row="3"
+               Margin="0,20,0,0"
+               Background="#EEF2FF"
+               CornerRadius="8"
+               Padding="16,12"
+               BorderBrush="#C7D2FE"
+               BorderThickness="1">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="💡" 
+                          FontSize="16" 
+                          Margin="0,0,8,0"
+                          VerticalAlignment="Center" />
+                <TextBlock TextWrapping="Wrap"
+                          Foreground="{StaticResource PrimaryBrush}"
+                          FontSize="13"
+                          FontWeight="Medium"
+                          VerticalAlignment="Center">
+                    <Run Text="Tip:"/>
+                    <Run Text="Double-click any movie to play in VLC. Your progress is automatically tracked!" FontWeight="Normal"/>
+                </TextBlock>
+            </StackPanel>
+        </Border>
 
     </Grid>
+    </Border>
 </Window>

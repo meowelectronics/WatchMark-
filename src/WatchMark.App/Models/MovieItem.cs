@@ -11,15 +11,18 @@ public partial class MovieItem : ObservableObject
     private string filePath = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DurationText))]
     private TimeSpan duration;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
     private double progressPercent;
 
     [ObservableProperty]
     private bool isWatched;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LastWatchedText))]
     private DateTimeOffset? lastWatchedUtc;
 
     public string DurationText => duration.TotalMinutes > 0

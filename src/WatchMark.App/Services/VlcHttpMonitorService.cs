@@ -87,15 +87,23 @@ public class VlcHttpMonitorService : IDisposable
             var root = doc.RootElement;
 
             var state = root.GetProperty("state").GetString();
-            var length = root.GetProperty("length").GetInt64(); // in seconds
-            var time = root.GetProperty("time").GetInt64(); // in seconds
+            var length = root.TryGetProperty("length", out var lengthElement) ? lengthElement.GetInt64() : 0; // in seconds
+            var time = root.TryGetProperty("time", out var timeElement) ? timeElement.GetInt64() : 0; // in seconds
+            var position = root.TryGetProperty("position", out var positionElement) ? positionElement.GetDouble() : 0d; // 0..1
 
-            if (length <= 0)
+            var progressPercent = length > 0
+                ? Math.Round((time / (double)length) * 100, 2)
+                : Math.Round(position * 100d, 2);
+
+            if (progressPercent < 0)
             {
-                return null;
+                progressPercent = 0;
+            }
+            else if (progressPercent > 100)
+            {
+                progressPercent = 100;
             }
 
-            var progressPercent = Math.Round((time / (double)length) * 100, 2);
             var isPlaying = state == "playing";
             var hasEnded = state == "stopped" && time > 0;
 
